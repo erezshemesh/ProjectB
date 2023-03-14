@@ -1,5 +1,5 @@
 import numpy as np
-
+from gym.spaces.space import Space
 from generator import *
 import random
 
@@ -123,9 +123,20 @@ class GymTrainSystem(gym.Env):
     def __init__(self, T, L, P, g):
         super().__init__()
         self.sys = TrainSystem(T, L, P, g)
+        # high = np.array([1., 1., self.max_speed], dtype=np.float32)
+        # self.action_space = gym.spaces.Box(
+        #     low=-self.max_torque,
+        #     high=self.max_torque, shape=(1,),
+        #     dtype=np.float32
+        # )
+        # self.observation_space = gym.spaces.Box(
+        #     low=-high,
+        #     high=high,
+        #     dtype=np.float32
+        # )
 
     def reset(self):
-        self.sys.reset
+        self.sys.reset()
 
     def step(self, action):
         self.sys.agent_speed = action
