@@ -23,18 +23,46 @@ class TrainSystem:
         self.start_time = [T[train, 0] - L[train, 0] * self.gen.beta[0] for train in range(self.gen.trains)]
 
 
+    def estimated_T_diff(self, train, station):
+        # we only take into account trains that hasn't departed yet from 'station' , and this is the next station to depart.
+        # if train already departed or train has a previous station to depart from , then estimated_T diff is not important  and accounted as ZERO.
+        estimated_T = self.time
+        if self.location[train] > station * self.gen.km_between_stations:
+            # CASE 1 - train already departed station
+            return 0
+        elif self.location[train] <= (station - 1) * self.gen.km_between_stations:
+            # CASE 2 - train has a previous station to depart from
+            return 0
+        elif self.location[train] == station * self.gen.km_between_stations:
+            # CASE 3 - train is in station
+            if self.states[train].state == states.WAITING_FOR_FIRST_DEPART:
+                estimated_T = self.start_time[train]
+                estimated_T += min(((self.platform[station] )* self.gen.lambda_[station]),(self.gen.lmax - self.load[train])) * self.gen.beta[station]
+            if self.states[train].state == states.UNLOADING:
+                estimated_T += (self.load[train] - (self.load_before_alight[train] * self.gen.eta[train, station])) * self.gen.alpha[station]
+                estimated_T += min((self.platform[station] + (estimated_T - self.time) * self.gen.lambda_[station]), (self.gen.lmax - self.load[train])) * self.gen.beta[station]
+            if self.states[train].state == states.LOADING:
+                estimated_T += min((self.platform[station] * self.gen.lambda_[station]), (self.gen.lmax - self.load[train])) * self.gen.beta[station]
+        elif self.location[train] < station * self.gen.km_between_stations:
+            # CASE 4 - train is moving to station
+            estimated_T += (station * self.gen.km_between_stations - self.location[train]) / (self.gen.speed_kmh/3600 + self.agent_speed[train])
+            estimated_T += (self.load[train] - (self.load_before_alight[train] * self.gen.eta[train, station])) * self.gen.alpha[station]
+            estimated_T += min((self.platform[station] + (estimated_T - self.time) * self.gen.lambda_[station]), (self.gen.lmax - self.load[train])) * self.gen.beta[station]
+        return abs(estimated_T - self.T[train,station])
     def reward(self):
-        return 0
-
+        diff = 0
+        for train in range(self.gen.trains):
+            for station in range(self.gen.stations):
+                diff += self.estimated_T_diff(train, station)
+        return diff
     def new_state_reward(self):
-        state = np.concatenate(self.location, self.load, self.platform, axis=0)
-        state = np.append(state, self.time)
         reward = self.reward()
         done = (self.states[-1].state == states.FINISHED)
-        return state, reward, done
+        info = {}
+        return self.get_obs(), reward, done, info
 
     def reset(self):
-        self.time = 21600  # 6:00AM
+        self.time = to_sec('06:00:00')
         self.location = np.zeros(self.gen.trains)
         self.states = []
         for _ in range(self.gen.trains):
@@ -43,6 +71,7 @@ class TrainSystem:
         self.load_before_alight = np.zeros(self.gen.trains)
         self.platform = np.zeros(self.gen.stations)
         self.agent_speed = np.zeros(self.gen.trains)
+        return self.get_obs()
 
     def Wait(self, train, epoch):
         max_wait = self.start_time[train] - self.time
@@ -78,7 +107,7 @@ class TrainSystem:
     def Move(self, train, effective_epoch):
         self.states[train].state = states.MOVING
         speed = (self.gen.speed_kmh / units.hour) + self.agent_speed[train]
-        if(self.states[train].station==self.gen.stations-1):
+        if (self.states[train].station == self.gen.stations - 1):
             self.states[train].state = states.FINISHED
         else:
             if effective_epoch > 0:
@@ -115,28 +144,43 @@ class TrainSystem:
                 self.Move(train, epoch)
         return self.new_state_reward()
 
-    def state(self):
-        return np.concatenate(self.load, self.location, self.platform, np.array(self.time), axis=0)
+    def get_obs(self):
+        obs = np.concatenate((self.load, self.location, self.platform, np.array([self.time])), axis=0)
+
+        return obs
 
 
 class GymTrainSystem(gym.Env):
     def __init__(self, T, L, P, g):
         super().__init__()
         self.sys = TrainSystem(T, L, P, g)
-        # high = np.array([1., 1., self.max_speed], dtype=np.float32)
-        # self.action_space = gym.spaces.Box(
-        #     low=-self.max_torque,
-        #     high=self.max_torque, shape=(1,),
-        #     dtype=np.float32
-        # )
-        # self.observation_space = gym.spaces.Box(
-        #     low=-high,
-        #     high=high,
-        #     dtype=np.float32
-        # )
+        self.action_space = gym.spaces.Box(
+            low=np.full(self.sys.gen.trains, -1, dtype=np.float32),
+            high=np.full(self.sys.gen.trains, 1, dtype=np.float32),
+            dtype=np.float32
+        )
+        min_load, max_load = 0, self.sys.gen.lmax
+        min_location, max_location = 0, (self.sys.gen.stations - 1) * self.sys.gen.km_between_stations
+        min_platform, max_platform = 0, np.inf
+        min_time, max_time = to_sec('06:00:00'), to_sec('23:59:59')
+        obs_low = np.concatenate((np.full(self.sys.gen.trains, min_location, dtype=np.float32),
+                                  np.full(self.sys.gen.trains, min_load, dtype=np.float32),
+                                  np.full(self.sys.gen.stations, min_platform, dtype=np.float32),
+                                  np.array([min_time], dtype=np.float32)
+                                  ), axis=0)
+        obs_high = np.concatenate((np.full(self.sys.gen.trains, max_location, dtype=np.float32),
+                                   np.full(self.sys.gen.trains, max_load, dtype=np.float32),
+                                   np.full(self.sys.gen.stations, max_platform, dtype=np.float32),
+                                   np.array([max_time], dtype=np.float32)
+                                   ), axis=0)
+        self.observation_space = gym.spaces.Box(
+            low=obs_low,
+            high=obs_high,
+            dtype=np.float32
+        )
 
     def reset(self):
-        self.sys.reset()
+        return self.sys.reset()
 
     def step(self, action):
         self.sys.agent_speed = action
@@ -144,6 +188,3 @@ class GymTrainSystem(gym.Env):
 
     def render(self, mode='human'):
         pass
-
-    
-

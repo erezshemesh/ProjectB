@@ -30,12 +30,12 @@ P = np.array([[1940, 2045, 2170, 2312],
               [65, 43, 25, 18],
               [20, 19, 18, 18]])
 
+#T = np.array([[82044, 86398]])
 
-T = np.array([[82044, 86398]])
+#L = np.array([[6044, 9998]])
 
-L = np.array([[6044, 9998]])
+#P = np.array([[6044, 6371]])
 
-P = np.array([[6044, 6371]])
 
 def train(env, hyperparameters, actor_model, critic_model):
     """
@@ -71,7 +71,7 @@ def train(env, hyperparameters, actor_model, critic_model):
     # Train the PPO model with a specified total timesteps
     # NOTE: You can change the total timesteps here, I put a big number just because
     # you can kill the process whenever you feel like PPO is converging
-    model.learn(total_timesteps=20_000)
+    model.learn(total_timesteps=200_000_000)
 
 
 def test(env, actor_model):
@@ -109,9 +109,7 @@ def test(env, actor_model):
     eval_policy(policy=policy, env=env, render=False)
 
 
-
 def main(args):
-
     """
 		The main function to run.
 
@@ -126,8 +124,8 @@ def main(args):
     # ArgumentParser because it's too annoying to type them every time at command line. Instead, you can change them here.
     # To see a list of hyperparameters, look in ppo.py at function _init_hyperparameters
     hyperparameters = {
-        'timesteps_per_batch': 2048,
-        'max_timesteps_per_episode': 200,
+        'timesteps_per_batch': 100,
+        'max_timesteps_per_episode': 100,
         'gamma': 0.99,
         'n_updates_per_iteration': 10,
         'lr': 3e-4,
@@ -142,27 +140,25 @@ def main(args):
     # aces.
 
     g = Generator(
-		trains=1,
-		stations=2,
-		t_alight_per_person=3,
-		t_board_per_person=4,
-		platform_arrivals_per_t=0.1,
-		alight_fraction=0.4,
-		number_of_carts=10,
-		km_between_stations=30,
-		speed_kmh=100,
-		stop_t=0,
-		tmin=180,
-		train_capacity=10000,
-		platform_capacity=100000,
-		var=0
-	)
+        trains=5,
+        stations=4,
+        t_alight_per_person=3,
+        t_board_per_person=4,
+        platform_arrivals_per_t=0.1,
+        alight_fraction=0.4,
+        number_of_carts=10,
+        km_between_stations=30,
+        speed_kmh=100,
+        stop_t=0,
+        tmin=180,
+        train_capacity=10000,
+        platform_capacity=100000,
+        var=0
+    )
 
     # env = gym.make('Pendulum-v0')
 
     env = GymTrainSystem(T, L, P, g)
-
-
 
     # Train or test, depending on the mode specified
     if args.mode == 'train':
