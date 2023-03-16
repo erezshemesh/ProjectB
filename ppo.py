@@ -200,9 +200,7 @@ class PPO:
 				# Calculate action and make a step in the env. 
 				# Note that rew is short for reward.
 				action, log_prob = self.get_action(obs)
-				print(self.env.sys.time)
 				obs, rew, done, _ = self.env.step(action)
-				print(self.env.sys.time)
 				# Track recent reward, action, and action log probability
 				ep_rews.append(rew)
 				batch_acts.append(action)

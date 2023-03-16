@@ -37,7 +37,7 @@ class TrainSystem:
             # CASE 3 - train is in station
             if self.states[train].state == states.WAITING_FOR_FIRST_DEPART:
                 estimated_T = self.start_time[train]
-                estimated_T += min(((self.platform[station] )* self.gen.lambda_[station]),(self.gen.lmax - self.load[train])) * self.gen.beta[station]
+                estimated_T += min(((self.platform[station]) * self.gen.lambda_[station]),(self.gen.lmax - self.load[train])) * self.gen.beta[station]
             if self.states[train].state == states.UNLOADING:
                 estimated_T += (self.load[train] - (self.load_before_alight[train] * self.gen.eta[train, station])) * self.gen.alpha[station]
                 estimated_T += min((self.platform[station] + (estimated_T - self.time) * self.gen.lambda_[station]), (self.gen.lmax - self.load[train])) * self.gen.beta[station]
@@ -48,7 +48,7 @@ class TrainSystem:
             estimated_T += (station * self.gen.km_between_stations - self.location[train]) / (self.gen.speed_kmh/3600 + self.agent_speed[train])
             estimated_T += (self.load[train] - (self.load_before_alight[train] * self.gen.eta[train, station])) * self.gen.alpha[station]
             estimated_T += min((self.platform[station] + (estimated_T - self.time) * self.gen.lambda_[station]), (self.gen.lmax - self.load[train])) * self.gen.beta[station]
-        return abs(estimated_T - self.T[train,station])
+        return abs(estimated_T - self.T[train, station])
     def reward(self):
         diff = 0
         for train in range(self.gen.trains):
@@ -130,7 +130,6 @@ class TrainSystem:
             # CASE 0 - Finished
             if self.states[train].state == states.MOVING and self.states[train].station == self.gen.stations - 1:
                 self.states[train].state = states.FINISHED
-                print("Train")
             elif self.states[train].state == states.WAITING_FOR_FIRST_DEPART:
                 self.Wait(train, epoch)
             # CASE 2 - loading
@@ -146,7 +145,6 @@ class TrainSystem:
 
     def get_obs(self):
         obs = np.concatenate((self.load, self.location, self.platform, np.array([self.time])), axis=0)
-
         return obs
 
 
