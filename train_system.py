@@ -23,37 +23,70 @@ class TrainSystem:
         self.start_time = [T[train, 0] - L[train, 0] * self.gen.beta[0] for train in range(self.gen.trains)]
 
 
-    def estimated_T_diff(self, train, station):
-        # we only take into account trains that hasn't departed yet from 'station' , and this is the next station to depart.
-        # if train already departed or train has a previous station to depart from , then estimated_T diff is not important  and accounted as ZERO.
-        estimated_T = self.time
-        if self.location[train] > station * self.gen.km_between_stations:
-            # CASE 1 - train already departed station
-            return 0
-        elif self.location[train] <= (station - 1) * self.gen.km_between_stations:
-            # CASE 2 - train has a previous station to depart from
-            return 0
-        elif self.location[train] == station * self.gen.km_between_stations:
-            # CASE 3 - train is in station
-            if self.states[train].state == states.WAITING_FOR_FIRST_DEPART:
-                estimated_T = self.start_time[train]
-                estimated_T += min(((self.platform[station]) * self.gen.lambda_[station]),(self.gen.lmax - self.load[train])) * self.gen.beta[station]
-            if self.states[train].state == states.UNLOADING:
-                estimated_T += (self.load[train] - (self.load_before_alight[train] * self.gen.eta[train, station])) * self.gen.alpha[station]
-                estimated_T += min((self.platform[station] + (estimated_T - self.time) * self.gen.lambda_[station]), (self.gen.lmax - self.load[train])) * self.gen.beta[station]
-            if self.states[train].state == states.LOADING:
-                estimated_T += min((self.platform[station] * self.gen.lambda_[station]), (self.gen.lmax - self.load[train])) * self.gen.beta[station]
-        elif self.location[train] < station * self.gen.km_between_stations:
-            # CASE 4 - train is moving to station
-            estimated_T += (station * self.gen.km_between_stations - self.location[train]) / (self.gen.speed_kmh/3600 + self.agent_speed[train])
-            estimated_T += (self.load[train] - (self.load_before_alight[train] * self.gen.eta[train, station])) * self.gen.alpha[station]
-            estimated_T += min((self.platform[station] + (estimated_T - self.time) * self.gen.lambda_[station]), (self.gen.lmax - self.load[train])) * self.gen.beta[station]
-        return abs(estimated_T - self.T[train, station])
+    def estimated_T_diff(self, train):
+        est_depart_time,station=self.time_to_next_depart(train)
+        return abs(est_depart_time - self.T[train, station])
+    
+    def get_next_station(self,train):
+        return self.states[train].station + (self.states[train]==states.MOVING)
+    
+    def time_to_reach_station(self,train,station):
+        if(self.states[train]==states.MOVING):
+            train_speed=self.gen.speed_kmh/3600 + self.agent_speed[train]
+            distance_to_next_station = station * (self.gen.km_between_stations - self.location[train])
+            return distance_to_next_station/train_speed
+        return 0
+    
+    def time_to_alight(self,train,station):
+        #need to get station for both Eta and Alpha
+        if(self.states[train]==states.UNLOADING):
+            return (self.load[train]-(1-self.gen.eta[train, station])*self.load_before_alight[train])*self.gen.alpha[station]
+        return 0
+    
+    def time_to_board (self,train,station,tau):
+        #tau is effective time till we start loading passengers
+        max_load=self.gen.lmax-self.load[train]
+        #TODO: it seems like we are doing some sort of over estimation here. Can't put my finger on where..
+        
+        #TODO:add condition - do not for the first one
+        if (train > 0 and self.get_next_station(train-1)==station):
+            tau2=self.time_to_wait(train-1)+self.time_to_reach_station(train-1,station)+self.time_to_alight(train-1,station)
+            steal=self.gen.beta[station]*self.time_to_board(train-1,station,tau2)
+        else:
+            steal=0
+        #"Steal is:",steal)
+        return self.gen.beta[station] * min ((self.platform[station]-steal+tau*self.gen.lambda_[station])/(1-self.gen.lambda_[station]*self.gen.beta[station]),max_load)
+    
+    def time_to_wait (self,train):
+        if(self.states[train].station==states.WAITING_FOR_FIRST_DEPART):
+            return self.start_time[train]-max(self.time,self.gen.open_time[0])
+        return 0
+
+    def time_to_next_depart(self,train):
+        station = self.get_next_station(train)
+        waiting_time=self.time_to_wait(train)
+        arriving_time=self.time_to_reach_station(train,station)
+        alighting_time = self.time_to_alight(train,station)
+        
+        #calculation tau:
+        tau=arriving_time+alighting_time+waiting_time
+        
+        
+        boarding_time=self.time_to_board(train,station,tau) #It seems like we do overestimation here
+        est_time=self.time+waiting_time+arriving_time+alighting_time+boarding_time
+        if(train==1 and self.time==21660):
+            print("Hi")
+            print("Tau is:",tau)
+            print(self.time,waiting_time,arriving_time,alighting_time,boarding_time)
+            
+        return est_time,station
+    
+    
     def reward(self):
         diff = 0
         for train in range(self.gen.trains):
-            for station in range(self.gen.stations):
-                diff += self.estimated_T_diff(train, station)
+        #for station in range(self.gen.stations): TODO: Dont need to pass station anymore
+            diff += self.estimated_T_diff(train)
         return diff
     def new_state_reward(self):
         reward = self.reward()
@@ -127,6 +160,9 @@ class TrainSystem:
             if self.gen.open_time[i] <= self.time <= self.gen.close_time[i]:
                 self.platform[i] = self.platform[i] + (self.gen.lambda_[i] + noise * random.uniform(-0.3, 1.2)) * epoch
         for train in range(self.gen.trains):
+            #for debugging:
+            est_time=self.time_to_next_depart(train)
+            self.debug_print(train,est_time)
             # CASE 0 - Finished
             if self.states[train].state == states.MOVING and self.states[train].station == self.gen.stations - 1:
                 self.states[train].state = states.FINISHED
@@ -142,7 +178,13 @@ class TrainSystem:
             elif self.states[train].state == states.MOVING:
                 self.Move(train, epoch)
         return self.new_state_reward()
-
+    
+    def debug_print(self,train,est_time):
+        est_time,next_station=self.time_to_next_depart(train)
+        PDT_time=self.T[train,next_station]
+        #print("Time:",self.time,"\tTrain:",train,"\tState:",self.states[train].state,"\tActual Station:",next_station,"\tEstimated Time:",est_time,"\t PDT Time[Train,Actual Station]:",PDT_time)
+        #print("t_board:",self.gen.t_board(self.L,self.P,1,0),"\tBoard amount:",self.gen.board_amount(self.L,self.P,1,0))
+        #print("Platform:",self.platform[next_station])
     def get_obs(self):
         obs = np.concatenate((self.load, self.location, self.platform, np.array([self.time])), axis=0)
         return obs
@@ -179,9 +221,13 @@ class GymTrainSystem(gym.Env):
 
     def reset(self):
         return self.sys.reset()
+    
 
     def step(self, action):
+        #TDOO: INSIDE SETP WE ARE USING EPOCH BUT DON'T WE CALL STEP WHEN CALCULATING THE REWARDS?
+        
         self.sys.agent_speed = action
+        #for debugging:
         return self.sys.step()
 
     def render(self, mode='human'):
