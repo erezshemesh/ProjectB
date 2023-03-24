@@ -1,8 +1,8 @@
 """
-	This file is the executable for running PPO. It is based on this medium article: 
-	https://medium.com/@eyyu/coding-ppo-from-scratch-with-pytorch-part-1-4-613dfc1b14c8
+    This file is the executable for running PPO. It is based on this medium article: 
+    https://medium.com/@eyyu/coding-ppo-from-scratch-with-pytorch-part-1-4-613dfc1b14c8
 """
-
+ 
 import gym
 import sys
 import torch
@@ -11,50 +11,49 @@ from arguments import get_args
 from ppo import PPO
 from network import FeedForwardNN
 from eval_policy import eval_policy
-
+ 
 T = np.array([[41002, 43133, 45466, 47962],
               [76220, 79164, 82408, 85859],
               [82260, 83589, 84864, 86039],
               [82917, 84022, 85122, 86219],
               [83125, 84216, 85307, 86399]])
-
+ 
 L = np.array([[1940, 3209, 4096, 4770],
               [3521, 5716, 7123, 8063],
               [603, 804, 728, 455],
               [65, 82, 75, 63],
               [20, 31, 37, 40]])
-
+ 
 P = np.array([[1940, 2045, 2170, 2312],
               [3521, 3603, 3694, 3789],
               [603, 442, 245, 18],
               [65, 43, 25, 18],
               [20, 19, 18, 18]])
-
+ 
 #T = np.array([[82044, 86398]])
-
+ 
 #L = np.array([[6044, 9998]])
-
+ 
 #P = np.array([[6044, 6371]])
-
-
+ 
 def train(env, hyperparameters, actor_model, critic_model):
     """
-		Trains the model.
-
-		Parameters:
-			env - the environment to train on
-			hyperparameters - a dict of hyperparameters to use, defined in main
-			actor_model - the actor model to load in if we want to continue training
-			critic_model - the critic model to load in if we want to continue training
-
-		Return:
-			None
-	"""
+        Trains the model.
+ 
+        Parameters:
+            env - the environment to train on
+            hyperparameters - a dict of hyperparameters to use, defined in main
+            actor_model - the actor model to load in if we want to continue training
+            critic_model - the critic model to load in if we want to continue training
+ 
+        Return:
+            None
+    """
     print(f"Training", flush=True)
-
+ 
     # Create a model for PPO.
     model = PPO(policy_class=FeedForwardNN, env=env, **hyperparameters)
-
+ 
     # Tries to load in an existing actor/critic model to continue training on
     if actor_model != '' and critic_model != '':
         print(f"Loading in {actor_model} and {critic_model}...", flush=True)
@@ -67,59 +66,57 @@ def train(env, hyperparameters, actor_model, critic_model):
         sys.exit(0)
     else:
         print(f"Training from scratch.", flush=True)
-
-    # Train the PPO model with a specified total timesteps
+ 
+    # Train the PPO model with a specified total times
     # NOTE: You can change the total timesteps here, I put a big number just because
     # you can kill the process whenever you feel like PPO is converging
     model.learn(total_timesteps=248)
-
-
+ 
 def test(env, actor_model):
     """
-		Tests the model.
-
-		Parameters:
-			env - the environment to test the policy on
-			actor_model - the actor model to load in
-
-		Return:
-			None
-	"""
+        Tests the model.
+ 
+        Parameters:
+            env - the environment to test the policy on
+            actor_model - the actor model to load in
+ 
+        Return:
+            None
+    """
     print(f"Testing {actor_model}", flush=True)
-
+ 
     # If the actor model is not specified, then exit
     if actor_model == '':
         print(f"Didn't specify model file. Exiting.", flush=True)
         sys.exit(0)
-
+ 
     # Extract out dimensions of observation and action spaces
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.shape[0]
-
+ 
     # Build our policy the same way we build our actor model in PPO
     policy = FeedForwardNN(obs_dim, act_dim)
-
+ 
     # Load in the actor model saved by the PPO algorithm
     policy.load_state_dict(torch.load(actor_model))
-
+ 
     # Evaluate our policy with a separate module, eval_policy, to demonstrate
     # that once we are done training the model/policy with ppo.py, we no longer need
     # ppo.py since it only contains the training algorithm. The model/policy itself exists
     # independently as a binary file that can be loaded in with torch.
     eval_policy(policy=policy, env=env, render=False)
-
-
+ 
 def main(args):
     """
-		The main function to run.
-
-		Parameters:
-			args - the arguments parsed from command line
-
-		Return:
-			None
-	"""
-
+        The main function to run.
+ 
+        Parameters:
+            args - the arguments parsed from command line
+ 
+        Return:
+            None
+    """
+ 
     # NOTE: Here's where you can set hyperparameters for PPO. I don't include them as part of
     # ArgumentParser because it's too annoying to type them every time at command line. Instead, you can change them here.
     # To see a list of hyperparameters, look in ppo.py at function _init_hyperparameters
@@ -133,12 +130,12 @@ def main(args):
         'render': False,
         'render_every_i': 10
     }
-
+ 
     # Creates the environment we'll be running. If you want to replace with your own
     # custom environment, note that it must inherit Gym and have both continuous
     # observation and action sp
     # aces.
-
+ 
     g = Generator(
         trains=5,
         stations=4,
@@ -155,18 +152,18 @@ def main(args):
         platform_capacity=100000,
         var=0
     )
-
+ 
     # env = gym.make('Pendulum-v0')
-
+ 
     env = GymTrainSystem(T, L, P, g)
-
+ 
     # Train or test, depending on the mode specified
     if args.mode == 'train':
         train(env=env, hyperparameters=hyperparameters, actor_model=args.actor_model, critic_model=args.critic_model)
     else:
         test(env=env, actor_model=args.actor_model)
-
-
+ 
 if __name__ == '__main__':
     args = get_args()  # Parse arguments from command line
     main(args)
+ 
