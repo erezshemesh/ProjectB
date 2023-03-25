@@ -54,8 +54,10 @@ class TrainSystem:
                        self.time_to_reach_station(train_ahead, station) +\
                        self.time_to_alight(train_ahead, station)
                 steal += self.time_to_board(train_ahead, station, tau2) / self.gen.beta[station]
-        return self.gen.beta[station] * min((self.platform[station] - steal + tau * self.gen.lambda_[station]) / (
-                    1 - self.gen.lambda_[station] * self.gen.beta[station]), max_load)
+            a=(self.platform[station] - steal + tau * self.gen.lambda_[station]) / (1 - self.gen.lambda_[station] * self.gen.beta[station])
+            b= max_load + self.time_to_alight(train,station) / self.gen.alpha[station]
+        return self.gen.beta[station] * min(a,b)
+                    
  
     def time_to_wait(self, train):
         if self.states[train].state == states.WAITING_FOR_FIRST_DEPART:
