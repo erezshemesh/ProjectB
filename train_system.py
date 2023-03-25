@@ -3,10 +3,9 @@ from gym.spaces.space import Space
 from generator import *
 import random
 from sys import exit
-
-
+ 
 class TrainSystem:
-
+ 
     def __init__(self, T, L, P, gen: Generator):
         self.T = T
         self.L = L
@@ -22,21 +21,21 @@ class TrainSystem:
         self.platform = np.zeros(gen.stations)
         self.agent_speed = np.zeros(gen.trains)
         self.start_time = [T[train, 0] - L[train, 0] * self.gen.beta[0] for train in range(self.gen.trains)]
-
+ 
     def estimated_T_diff(self, train):
         est_depart_time, station = self.time_to_next_depart(train)
         return abs(est_depart_time - self.T[train, station])
-
+ 
     def get_next_station(self, train):
         return self.states[train].station + (self.states[train].state == states.MOVING)
-
+ 
     def time_to_reach_station(self, train, station):
         if self.states[train].state == states.MOVING:
             train_speed = self.gen.speed_kmh / 3600 + self.agent_speed[train]
             distance_to_next_station = station * self.gen.km_between_stations - self.location[train]
             return distance_to_next_station / train_speed
         return 0
-
+ 
     def time_to_alight(self, train, station):
         if self.states[train].state != states.LOADING:
             load_before_alight = self.load_before_alight[train] if self.states[train].state == states.UNLOADING else \
@@ -44,7 +43,7 @@ class TrainSystem:
             return (self.load[train] - (1 - self.gen.eta[train, station]) * load_before_alight) * \
                    self.gen.alpha[station]
         return 0
-
+ 
     def time_to_board(self, train, station, tau):
         max_load = self.gen.lmax - self.load[train]
         steal = 0
@@ -55,41 +54,52 @@ class TrainSystem:
                        self.time_to_reach_station(train_ahead, station) +\
                        self.time_to_alight(train_ahead, station)
                 steal += self.time_to_board(train_ahead, station, tau2) / self.gen.beta[station]
-        return self.gen.beta[station] * min((self.platform[station] - steal + tau * self.gen.lambda_[station]) / (
-                    1 - self.gen.lambda_[station] * self.gen.beta[station]), max_load)
-
-
+            a=(self.platform[station] - steal + tau * self.gen.lambda_[station]) / (1 - self.gen.lambda_[station] * self.gen.beta[station])
+            b= max_load + self.time_to_alight(train,station) / self.gen.alpha[station]
+        return self.gen.beta[station] * min(a,b)
+                    
+ 
     def time_to_wait(self, train):
         if self.states[train].state == states.WAITING_FOR_FIRST_DEPART:
             return self.start_time[train] - self.time
         return 0
-
+ 
     def time_to_next_depart(self, train):
         station = self.get_next_station(train)
         waiting_time = self.time_to_wait(train)
         arriving_time = self.time_to_reach_station(train, station)
         alighting_time = self.time_to_alight(train, station)
         tau = arriving_time + alighting_time + waiting_time
+        
+        pdt_time=self.T[train, station]
+        
         boarding_time = self.time_to_board(train, station, tau)
+        
+        
         est_time = self.time + waiting_time + arriving_time + alighting_time + boarding_time
+        ratio=est_time / self.T[train, station]
+        
+        
         if self.states[train].state != states.FINISHED:
+            #print(ratio)
+            #if(ratio <0.999): #ratio>1.0001
             print("Time:", self.time, "\tTrain:", train, "\tState:", self.states[train].state, "\tActual Station:",
-                  station, "\tEstimated Time:", est_time, "\t PDT Time[Train,Actual Station]:", self.T[train, station])
+                station, "\tEstimated Time:", est_time, "\t PDT Time[Train,Actual Station]:", self.T[train, station])
         return est_time, station
-
+ 
     def reward(self):
         diff = 0
         for train in range(self.gen.trains):
             if self.states[train].state != states.FINISHED:
                 diff += self.estimated_T_diff(train)
         return -diff/10
-
+ 
     def new_state_reward(self):
         reward = self.reward()
         done = (self.states[-1].state == states.FINISHED)
         info = {}
         return self.get_obs(), self.reward(), (self.states[-1].state == states.FINISHED), {}
-
+ 
     def reset(self):
         self.time = to_sec('06:00:00')
         self.location = np.zeros(self.gen.trains)
@@ -101,12 +111,12 @@ class TrainSystem:
         self.platform = np.zeros(self.gen.stations)
         self.agent_speed = np.zeros(self.gen.trains)
         return self.get_obs()
-
+ 
     def Wait(self, train, epoch):
         max_wait = self.start_time[train] - self.time
         if epoch > max_wait:
             self.Load(train, epoch - max_wait)
-
+ 
     def Load(self, train, effective_epoch):
         self.states[train].state = states.LOADING
         if effective_epoch > 0:
@@ -123,7 +133,7 @@ class TrainSystem:
                 self.platform[station] = 0
                 self.load_before_alight[train] = self.load[train]
                 self.Move(train, effective_epoch - loading_time)
-
+ 
     def Unload(self, train, effective_epoch):
         self.states[train].state = states.UNLOADING  # maybe it should be outside, think about it later
         if effective_epoch > 0:
@@ -133,7 +143,7 @@ class TrainSystem:
             self.load[train] -= min(potential_unload, max_unload)
             if potential_unload >= max_unload:
                 self.Load(train, effective_epoch - max_unload * self.gen.alpha[station])
-
+ 
     def Move(self, train, effective_epoch):
         self.states[train].state = states.MOVING
         speed = (self.gen.speed_kmh / units.hour) + self.agent_speed[train]
@@ -150,7 +160,7 @@ class TrainSystem:
                     self.states[train].station += 1
                     self.load_before_alight[train] = self.load[train]
                     self.Unload(train, effective_epoch - moving_time)
-
+ 
     def step(self, epoch=300, noise=0):
         self.time = self.time + epoch
         if self.time == 40200:
@@ -158,9 +168,9 @@ class TrainSystem:
         for i in range(self.gen.stations):
             if self.gen.open_time[i] <= self.time <= self.gen.close_time[i]:
                 self.platform[i] = self.platform[i] + (self.gen.lambda_[i] + noise * random.uniform(-0.027, 0.05)) * epoch
-
+ 
         reward = self.reward()
-
+ 
         for train in range(self.gen.trains):
             # CASE 0 - Finished
             if self.states[train].state == states.MOVING and self.states[train].station == self.gen.stations - 1:
@@ -176,25 +186,23 @@ class TrainSystem:
             # CASE 4 - Moving
             elif self.states[train].state == states.MOVING:
                 self.Move(train, epoch)
-
+ 
         done = (self.states[-1].state == states.FINISHED)
-
+ 
         return self.get_obs(), reward, done, {}
-
+ 
     def debug_print(self, train):
         est_time, next_station = self.time_to_next_depart(train)
         PDT_time = self.T[train, next_station]
         if self.states[train].state != states.FINISHED:
-            print("Time:", self.time, "\tTrain:", train, "\tState:", self.states[train].state, "\tActual Station:",
-                  next_station, "\tEstimated Time:", est_time, "\t PDT Time[Train,Actual Station]:", PDT_time)
             if 0.99 > (est_time / PDT_time) or (est_time / PDT_time) > 1.01:
-                pass #exit()
-
+                print("Time:", self.time, "\tTrain:", train, "\tState:", self.states[train].state, "\tActual Station:",
+                    next_station, "\tEstimated Time:", est_time, "\t PDT Time[Train,Actual Station]:", PDT_time)
+ 
     def get_obs(self):
         obs = np.concatenate((self.load, self.location, self.platform, np.array([self.time])), axis=0)
         return obs
-
-
+ 
 class GymTrainSystem(gym.Env):
     def __init__(self, T, L, P, g):
         super().__init__()
@@ -223,18 +231,18 @@ class GymTrainSystem(gym.Env):
             high=obs_high,
             dtype=np.float32
         )
-
+ 
     def reset(self):
         return self.sys.reset()
-
+ 
     def step(self, action):
         # TDOO: INSIDE SETP WE ARE USING EPOCH BUT DON'T WE CALL STEP WHEN CALCULATING THE REWARDS?
-
+ 
         #self.sys.agent_speed = action
         # dummy agent:
         self.sys.agent_speed = np.zeros(self.sys.gen.trains)
         # for debugging:
         return self.sys.step()
-
+ 
     def render(self, mode='human'):
         pass
