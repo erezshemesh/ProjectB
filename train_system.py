@@ -8,7 +8,7 @@ from sys import exit
 
 class TrainSystem:
 
-    def __init__(self, T, L, P, gen: Generator):
+    def __init__(self, T, L, P, gen: Generator, step_size=300):
         self.T = T
         self.L = L
         self.P = P
@@ -23,6 +23,7 @@ class TrainSystem:
         self.platform = np.zeros(gen.stations)
         self.agent_speed = np.zeros(gen.trains)
         self.start_time = [T[train, 0] - L[train, 0] * self.gen.beta[0] for train in range(self.gen.trains)]
+        self.step_size = step_size
 
     def debug_print(self, train, station, est_depart_time):
         ratio = est_depart_time / self.T[train, station]
@@ -196,14 +197,14 @@ class TrainSystem:
                     self.load_before_alight[train] = self.load[train]
                     self.Unload(train, effective_epoch - moving_time)
 
-    def step(self, epoch=300, noise=0):
-        self.time = self.time + epoch
-        if self.time == 40200:
+    def step(self, noise=0):
+        self.time = self.time + self.step_size
+        if self.time == 40200: #TODO: CHECK THAT TIME
             pass
         for i in range(self.gen.stations):
             if self.gen.open_time[i] <= self.time <= self.gen.close_time[i]:
                 self.platform[i] = self.platform[i] + (
-                            self.gen.lambda_[i] + noise * random.uniform(-0.027, 0.05)) * epoch
+                            self.gen.lambda_[i] + noise * random.uniform(-0.027, 0.05)) * self.step_size
 
         reward = self.reward()
 
@@ -212,16 +213,16 @@ class TrainSystem:
             if self.states[train].state == states.MOVING and self.states[train].station == self.gen.stations - 1:
                 self.states[train].state = states.FINISHED
             elif self.states[train].state == states.WAITING_FOR_FIRST_DEPART:
-                self.Wait(train, epoch)
+                self.Wait(train, self.step_size)
             # CASE 2 - loading
             elif self.states[train].state == states.LOADING:
-                self.Load(train, epoch)
+                self.Load(train, self.step_size)
             # CASE 3 - Unloading
             elif self.states[train].state == states.UNLOADING:
-                self.Unload(train, epoch)
+                self.Unload(train, self.step_size)
             # CASE 4 - Moving
             elif self.states[train].state == states.MOVING:
-                self.Move(train, epoch)
+                self.Move(train, self.step_size)
 
         done = (self.states[-1].state == states.FINISHED)
 
@@ -233,9 +234,9 @@ class TrainSystem:
 
 
 class GymTrainSystem(gym.Env):
-    def __init__(self, T, L, P, g):
+    def __init__(self, T, L, P, g , step_size):
         super().__init__()
-        self.sys = TrainSystem(T, L, P, g)
+        self.sys = TrainSystem(T, L, P, g, step_size)
         self.action_space = gym.spaces.Box(
             low=np.full(self.sys.gen.trains, -1, dtype=np.float32),
             high=np.full(self.sys.gen.trains, 1, dtype=np.float32),
