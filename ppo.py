@@ -72,7 +72,7 @@ class PPO:
             'batch_rews': [],  # episodic returns in batch
             'actor_losses': [],  # losses of actor network in current iteration
         }
-
+        self.writer = SummaryWriter('runs/tb_experiment')
     def learn(self, total_timesteps):
         """
             Train the actor and critic networks. Here is where the main PPO algorithm resides.
@@ -279,6 +279,8 @@ class PPO:
         # Query the actor network for a mean action
         mean = self.actor(obs)
 
+        self.writer.add_histogram('layer1', self.actor.layer1.weight.data, self.logger['i_so_far'])
+
         # Create a distribution with the mean action and std from the covariance matrix above.
         # For more information on how this distribution works, check out Andrew Ng's lecture on it:
         # https://www.youtube.com/watch?v=JjB58InuTqM
@@ -385,11 +387,12 @@ class PPO:
         avg_ep_lens = np.mean(self.logger['batch_lens'])
         avg_ep_rews = np.mean([np.sum(ep_rews) for ep_rews in self.logger['batch_rews']])
         avg_actor_loss = np.mean([losses.float().mean() for losses in self.logger['actor_losses']])
-
+        self.writer.add_scalar('reward', avg_ep_rews, i_so_far)
         # Round decimal places for more aesthetic logging messages
         avg_ep_lens = str(round(avg_ep_lens, 2))
         avg_ep_rews = str(round(avg_ep_rews, 2))
         avg_actor_loss = str(round(avg_actor_loss, 5))
+
 
         # Print logging statements
         print(flush=True)
