@@ -111,6 +111,7 @@ def table_loader(en, history_index=math.nan):  # TODO: instead of en, use comman
         path_P = os.path.join(os.getcwd(), "P_history", filename_P)
         # Check file paths:
         if os.path.isfile(path_T) and os.path.isfile(path_L) and os.path.isfile(path_P):
+
             new_T = np.loadtxt(path_T)
             new_L = np.loadtxt(path_L)
             new_P = np.loadtxt(path_P)
