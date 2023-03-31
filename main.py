@@ -2,6 +2,7 @@
     This file is the executable for running PPO. It is based on this medium article:
     https://medium.com/@eyyu/coding-ppo-from-scratch-with-pytorch-part-1-4-613dfc1b14c8
 """
+import math
 
 import gym
 import sys
@@ -14,7 +15,8 @@ from eval_policy import eval_policy
 import openpyxl
 import pandas as pd
 from openpyxl import load_workbook
-
+import os
+from torch.utils.tensorboard import SummaryWriter
 
 # consts:
 DAY_BEGIN_SEC = 21600
@@ -50,10 +52,10 @@ def dic_creator(sheet_name, workbook, dic):
         dic[key] = value
 
 
-def update_history_counter(max_history):
+def update_history_counter(max_history, reset_en=False):
     # gets current value of history_counter:
     current_value = counter_worksheet['B2'].value
-    if current_value == max_history:
+    if current_value == max_history or reset_en:
         new_value = 1
     else:
         new_value = current_value + 1
@@ -61,39 +63,62 @@ def update_history_counter(max_history):
     counter_worksheet['B2'] = new_value
     config_workbook.save('config_file.xlsx')
 
-#make all sheets active
-#save generated..
 
-def make_all_sheets_vis(existing_file_name_xlsx):
-    wb = load_workbook(existing_file_name_xlsx)
-    for sheet in wb:
-        sheet.sheet_state = 'visible'
-    wb.save(existing_file_name_xlsx)
+def save_table(table, table_type, folder_name):
+    # specify the filename to write to with a variable holding an integer value
+    filename = table_type + "_" + str(history_counter) + ".txt"
+    # create the full path to the file
+    path = os.path.join(os.getcwd(), folder_name, filename)
+    # check if the file exists
+    if os.path.isfile(path):
+        # if the file exists, overwrite it with the new tensor data
+        np.savetxt(path, table)
+        print((table_type + "_" + str(history_counter)), " overwritten successfully!")
+    else:
+        # if the file does not exist, create a new one and write the table to it
+        # create the directory if it does not exist
+        os.makedirs(os.path.join(os.getcwd(), folder_name), exist_ok=True)
+        np.savetxt(path, table)
+        print((table_type + "_" + str(history_counter)), " created and written successfully!")
 
-def save_generated_table(existing_file_name_xlsx, data): # 'for instance'
-    # Create a dataframe with the new data to be written to the sheet
-    new_data = pd.DataFrame(data)
-    # Create an ExcelWriter object
-    with pd.ExcelWriter(existing_file_name_xlsx, engine='openpyxl') as writer:
-        # Try to load the workbook
-        try:
-            book = load_workbook(existing_file_name_xlsx)
-            writer.book = book
-            # If the sheet exists, delete it
-            if str(history_counter) in book.sheetnames:
-                idx = book.sheetnames.index(str(history_counter))
-                book.remove(book.worksheets[idx])
-                writer.sheets = {ws.title: ws for ws in book.worksheets}
-        except FileNotFoundError:
-            pass
-        # Write the new data to the sheet
-        new_data.to_excel(writer, sheet_name=str(history_counter), index=False)
-        writer.save()
+def save_generated_tables(T,L,P):
+    save_table(T, "T", "T_history")
+    save_table(L, "L", "L_history")
+    save_table(P, "P", "P_history")
 
 
-def save_generated_table_wrapper(existing_file_name_xlsx,data):
-    make_all_sheets_vis(existing_file_name_xlsx)
-    save_generated_table(existing_file_name_xlsx,data)
+def table_loader(en, history_index=math.nan):  # TODO: instead of en, use command line
+    if en:
+        # Generate new tables:
+        constraints = g.make_all_constraints
+        g.sol = minimize(g.objective_max_board, g.V, method='SLSQP', constraints=constraints, callback=g.callback,
+                         options={'maxiter': max_iterations})
+        new_T, new_L, new_P = g.extract(g.sol.x)
+        # Save tables to .txt files in directories:
+        save_generated_tables(new_T, new_L, new_P)
+        # History counter proceeding:
+        update_history_counter(5) #TODO: make it paramater in config_file
+        # Return new tables:
+        return new_T, new_L, new_P
+    else:
+        #Load tables from history:
+        filename_T = "T" + "_" + str(history_index) + ".txt"
+        filename_L = "L" + "_" + str(history_index) + ".txt"
+        filename_P = "P" + "_" + str(history_index) + ".txt"
+        path_T = os.path.join(os.getcwd(), "T_history", filename_T)
+        print (path_T)
+        path_L = os.path.join(os.getcwd(), "L_history", filename_L)
+        path_P = os.path.join(os.getcwd(), "P_history", filename_P)
+        # Check file paths:
+        if os.path.isfile(path_T) and os.path.isfile(path_L) and os.path.isfile(path_P):
+            new_T = np.loadtxt(path_T)
+            new_L = np.loadtxt(path_L)
+            new_P = np.loadtxt(path_P)
+        else:
+            raise ValueError("One or more paths are not found! either folder or txt are missing!"
+                             " make sure you stored tables before!")
+        # Check shapes of tensors - TODO: if shape is not trains X stations - raise error
+    return new_T, new_L, new_P
 
 
 # handle config_file:
@@ -119,8 +144,28 @@ step_size = hyper_param_dic['step_size']
 steps_per_day = int((DAY_END_SEC - DAY_BEGIN_SEC) / step_size)
 days_in_episode = hyper_param_dic['days_in_episode']  # default value = 1
 steps_per_episode = steps_per_day * days_in_episode
+iteration_num = hyper_param_dic['iteration_number']  # default value = 1
 # Batch can contain more than 1 episode as far as I understand
 episodes_in_batch = hyper_param_dic['episodes_in_batch']
+
+# Generator:
+
+g = Generator(
+    trains=gen_param_dic['trains'],
+    stations=gen_param_dic['stations'],
+    t_alight_per_person=gen_param_dic['t_alight_per_person'],
+    t_board_per_person=gen_param_dic['t_board_per_person'],
+    platform_arrivals_per_t=gen_param_dic['platform_arrivals_per_t'],
+    alight_fraction=gen_param_dic['alight_fraction'],
+    number_of_carts=gen_param_dic['number_of_carts'],
+    km_between_stations=gen_param_dic['km_between_stations'],
+    speed_kmh=gen_param_dic['speed_kmh'],
+    stop_t=gen_param_dic['stop_t'],
+    tmin=gen_param_dic['tmin'],
+    train_capacity=gen_param_dic['train_capacity'],
+    platform_capacity=gen_param_dic['platform_capacity'],
+    var=gen_param_dic['var']
+)
 
 
 def train(env, hyperparameters, actor_model, critic_model):
@@ -157,7 +202,7 @@ def train(env, hyperparameters, actor_model, critic_model):
     # Train the PPO model with a specified total times
     # NOTE: You can change the total timesteps here, I put a big number just because
     # you can kill the process whenever you feel like PPO is converging
-    total_timesteps = steps_per_day * days_in_episode * episodes_in_batch
+    total_timesteps = steps_per_day * days_in_episode * episodes_in_batch * iteration_num
     model.learn(total_timesteps)
 
 def test(env, actor_model):
@@ -225,23 +270,6 @@ def main(args):
     # observation and action sp
     # aces.
 
-    g = Generator(
-        trains=gen_param_dic['trains'],
-        stations=gen_param_dic['stations'],
-        t_alight_per_person=gen_param_dic['t_alight_per_person'],
-        t_board_per_person=gen_param_dic['t_board_per_person'],
-        platform_arrivals_per_t=gen_param_dic['platform_arrivals_per_t'],
-        alight_fraction=gen_param_dic['alight_fraction'],
-        number_of_carts=gen_param_dic['number_of_carts'],
-        km_between_stations=gen_param_dic['km_between_stations'],
-        speed_kmh=gen_param_dic['speed_kmh'],
-        stop_t=gen_param_dic['stop_t'],
-        tmin=gen_param_dic['tmin'],
-        train_capacity=gen_param_dic['train_capacity'],
-        platform_capacity=gen_param_dic['platform_capacity'],
-        var=gen_param_dic['var']
-    )
-
     # env = gym.make('Pendulum-v0')
     env = GymTrainSystem(T, L, P, g, step_size)
 
@@ -252,5 +280,10 @@ def main(args):
         test(env=env, actor_model=args.actor_model)
 
 if __name__ == '__main__':
+    # If you manually delete history folders or some files inside, it is important to reset history_counter!
+    T,L,P = table_loader(gen_param_dic['generate_new'], gen_param_dic['load_index'])
     args = get_args()  # Parse arguments from command line
     main(args)
+    print(T,"\n")
+    print(L,"\n")
+    print(P,"\n")
