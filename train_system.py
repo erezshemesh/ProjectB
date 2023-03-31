@@ -113,7 +113,7 @@ class TrainSystem:
         # calculating estimated departure time from station:
         est_depart_time = self.time + period_till_boarding + boarding_time
         # debug print: #TODO: remove and use step printing instead.
-        self.debug_print(train, station, est_depart_time) #TODO: implement here step printing
+        # self.debug_print(train, station, est_depart_time) #TODO: implement here step printing
         return est_depart_time
 
     # This function is called every step and calculates reward to the agent.
